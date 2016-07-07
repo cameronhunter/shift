@@ -7,7 +7,7 @@ export default ({ source }, { jscodeshift: j }) => {
       const parentDeclaration = findParentDeclaration(node);
 
       // e.g. require('a');
-      if (!parentDeclaration || !parentDeclaration.scope.isGlobal) {
+      if (!parentDeclaration || !parentDeclaration.scope.isGlobal || node.parentPath.name === 'arguments') {
         return;
       }
 
