@@ -2,10 +2,7 @@
   "name": "shift-require-to-import",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
-  "directories": {
-    "test": "test"
-  },
+  "main": "build/index.js",
   "author": "Cameron Hunter",
   "license": "MIT"
 }

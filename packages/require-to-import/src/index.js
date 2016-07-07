@@ -7,15 +7,32 @@ export default ({ source }, { jscodeshift: j }) => {
       const parentDeclaration = findParentDeclaration(node);
 
       // e.g. require('a');
-      if (!parentDeclaration) {
+      if (!parentDeclaration || !parentDeclaration.scope.isGlobal) {
         return;
       }
 
+      const $parentDeclaration = j(parentDeclaration);
       const importPath = node.value.arguments[0].value;
 
       // e.g. const a = require('a'); or const a = require('a')('b');
       if (isSingleVariableDeclaration(parentDeclaration)) {
         const [declaration] = parentDeclaration.value.declarations;
+
+        // e.g. const a = require('a');
+        if (declaration.init.callee && declaration.init.callee.type === 'Identifier') {
+          if (parentDeclaration.value.kind === 'const') {
+            $parentDeclaration.replaceWith(`import ${declaration.id.name} from '${importPath}';`);
+            return;
+          }
+
+          if (parentDeclaration.value.kind === 'let' || parentDeclaration.value.kind === 'var') {
+            const kind = parentDeclaration.value.kind;
+            const importName = `_${declaration.id.name}`;
+            $parentDeclaration.replaceWith(`import ${importName} from '${importPath}';`);
+            $parentDeclaration.insertAfter(`${kind} ${declaration.id.name} = ${importName};`);
+            return;
+          }
+        }
 
         // e.g. const b = require('a').b;
         if (declaration.init.type === 'MemberExpression') {
@@ -24,27 +41,20 @@ export default ({ source }, { jscodeshift: j }) => {
           if (properties.length === 1) {
             const [name] = properties;
             const importName = name === declaration.id.name ? name : `${name} as ${declaration.id.name}`;
-            j(parentDeclaration).replaceWith(`import { ${importName} } from '${importPath}';`);
+            $parentDeclaration.replaceWith(`import { ${importName} } from '${importPath}';`);
           } else {
             const importName = `_${node.value.arguments[0].value}`; // TODO: handle paths
-            j(parentDeclaration).replaceWith(`import ${importName} from '${importPath}';`);
-            j(parentDeclaration).insertAfter(`const ${declaration.id.name} = ${importName}.${properties.join('.')};`);
+            $parentDeclaration.replaceWith(`import ${importName} from '${importPath}';`);
+            $parentDeclaration.insertAfter(`const ${declaration.id.name} = ${importName}.${properties.join('.')};`);
           }
-          return;
-        }
-
-        // e.g. const a = require('a');
-        if (declaration.init.callee.type === 'Identifier') {
-          const importName = declaration.id.name;
-          j(parentDeclaration).replaceWith(`import ${importName} from '${importPath}';`);
           return;
         }
 
         // e.g. const a = require('a')('b');
         if (declaration.init.callee.type === 'CallExpression') {
           const importName = `_${declaration.id.name}`;
-          j(parentDeclaration).replaceWith(`import ${importName} from '${importPath}';`);
-          j(parentDeclaration).insertAfter(`const ${declaration.id.name} = ${importName}(${j(declaration.init.arguments).toSource()});`);
+          $parentDeclaration.replaceWith(`import ${importName} from '${importPath}';`);
+          $parentDeclaration.insertAfter(`const ${declaration.id.name} = ${importName}(${j(declaration.init.arguments).toSource()});`);
           return;
         }
       }
@@ -54,7 +64,7 @@ export default ({ source }, { jscodeshift: j }) => {
         const [declaration] = parentDeclaration.value.declarations;
         const { imports, statements } = buildDestructuredImports(j, declaration.id.properties);
 
-        j(parentDeclaration).replaceWith(`import { ${imports.join(', ')} } from '${importPath}';`);
+        $parentDeclaration.replaceWith(`import { ${imports.join(', ')} } from '${importPath}';`);
         statements.length && j(parentDeclaration).insertAfter(statements.join(''));
         return;
       }
