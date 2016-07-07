@@ -11,29 +11,48 @@ export default ({ source }, { jscodeshift: j }) => {
         return;
       }
 
+      const importPath = node.value.arguments[0].value;
+
       // e.g. const a = require('a'); or const a = require('a')('b');
       if (isSingleVariableDeclaration(parentDeclaration)) {
         const [declaration] = parentDeclaration.value.declarations;
 
+        // e.g. const b = require('a').b;
+        if (declaration.init.type === 'MemberExpression') {
+          const properties = findProperties(declaration.init);
+
+          if (properties.length === 1) {
+            const [name] = properties;
+            const importName = name === declaration.id.name ? name : `${name} as ${declaration.id.name}`;
+            j(parentDeclaration).replaceWith(`import { ${importName} } from '${importPath}';`);
+          } else {
+            const importName = `_${node.value.arguments[0].value}`; // TODO: handle paths
+            j(parentDeclaration).replaceWith(`import ${importName} from '${importPath}';`);
+            j(parentDeclaration).insertAfter(`const ${declaration.id.name} = ${importName}.${properties.join('.')};`);
+          }
+          return;
+        }
+
         // e.g. const a = require('a');
         if (declaration.init.callee.type === 'Identifier') {
-          j(parentDeclaration).replaceWith(`import ${declaration.id.name} from '${declaration.init.arguments[0].value}';`);
+          const importName = declaration.id.name;
+          j(parentDeclaration).replaceWith(`import ${importName} from '${importPath}';`);
           return;
         }
 
         // e.g. const a = require('a')('b');
         if (declaration.init.callee.type === 'CallExpression') {
-          j(parentDeclaration).replaceWith(`import _${declaration.id.name} from '${declaration.init.callee.arguments[0].value}';`);
-          j(parentDeclaration).insertAfter(`const ${declaration.id.name} = _${declaration.id.name}(${j(declaration.init.arguments).toSource()});`);
+          const importName = `_${declaration.id.name}`;
+          j(parentDeclaration).replaceWith(`import ${importName} from '${importPath}';`);
+          j(parentDeclaration).insertAfter(`const ${declaration.id.name} = ${importName}(${j(declaration.init.arguments).toSource()});`);
           return;
         }
       }
 
-      // require with destructuring
+      // e.g. const { a, b } = require('a');
       if (isDestructuredDeclaration(parentDeclaration)) {
         const [declaration] = parentDeclaration.value.declarations;
         const { imports, statements } = buildDestructuredImports(j, declaration.id.properties);
-        const importPath = declaration.init.arguments[0].value;
 
         j(parentDeclaration).replaceWith(`import { ${imports.join(', ')} } from '${importPath}';`);
         statements.length && j(parentDeclaration).insertAfter(statements.join(''));
@@ -84,4 +103,13 @@ function buildDestructuredImports(j, properties) {
       };
     }
   }, { imports: [], statements: [] });
+}
+
+function findProperties(node, result = []) {
+  const property = node.property && node.property.name;
+  if (node.object) {
+    return findProperties(node.object, result.concat(property));
+  } else {
+    return result.concat(property).filter(Boolean).reverse();
+  }
 }
