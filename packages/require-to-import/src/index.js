@@ -6,43 +6,33 @@ export default ({ source }, { jscodeshift: j }) => {
     .forEach(node => {
       const parentDeclaration = findParentDeclaration(node);
 
-      // require with side-effects
+      // e.g. require('a');
       if (!parentDeclaration) {
         return;
       }
 
-      // require with single-variable
+      // e.g. const a = require('a'); or const a = require('a')('b');
       if (isSingleVariableDeclaration(parentDeclaration)) {
         const [declaration] = parentDeclaration.value.declarations;
-        const importName = declaration.id.name;
-        const importPath = declaration.init.arguments[0].value;
 
-        j(parentDeclaration).replaceWith(`import ${importName} from '${importPath}';`);
-        return;
-      }
+        // e.g. const a = require('a');
+        if (declaration.init.callee.type === 'Identifier') {
+          j(parentDeclaration).replaceWith(`import ${declaration.id.name} from '${declaration.init.arguments[0].value}';`);
+          return;
+        }
 
-      function foo(properties) {
-        return properties.reduce((state, { key, value }) => {
-          if (key.name === value.name) {
-            // Simple destructure e.g. const { a } = require('a');
-            return { ...state, imports: [...state.imports, key.name] };
-          } else if (value.name) {
-            // Destructure with rename e.g. const { a: b } = require('a');
-            return { ...state, imports: [...state.imports, `${key.name} as ${value.name}`] };
-          } else {
-            // Nested destructure e.g. const { a: { b } } = require('a');
-            return {
-              imports: [...state.imports, `${key.name} as _${key.name}`],
-              statements: [...state.statements, `const ${j(value).toSource()} = _${key.name};`]
-            };
-          }
-        }, { imports: [], statements: [] });
+        // e.g. const a = require('a')('b');
+        if (declaration.init.callee.type === 'CallExpression') {
+          j(parentDeclaration).replaceWith(`import _${declaration.id.name} from '${declaration.init.callee.arguments[0].value}';`);
+          j(parentDeclaration).insertAfter(`const ${declaration.id.name} = _${declaration.id.name}(${j(declaration.init.arguments).toSource()});`);
+          return;
+        }
       }
 
       // require with destructuring
       if (isDestructuredDeclaration(parentDeclaration)) {
         const [declaration] = parentDeclaration.value.declarations;
-        const { imports, statements } = foo(declaration.id.properties);
+        const { imports, statements } = buildDestructuredImports(j, declaration.id.properties);
         const importPath = declaration.init.arguments[0].value;
 
         j(parentDeclaration).replaceWith(`import { ${imports.join(', ')} } from '${importPath}';`);
@@ -76,4 +66,22 @@ function findParentDeclaration(node) {
   }
 
   return findParentDeclaration(node.parentPath);
+}
+
+function buildDestructuredImports(j, properties) {
+  return properties.reduce((state, { key, value }) => {
+    if (key.name === value.name) {
+      // Simple destructure e.g. const { a } = require('a');
+      return { ...state, imports: [...state.imports, key.name] };
+    } else if (value.name) {
+      // Destructure with rename e.g. const { a: b } = require('a');
+      return { ...state, imports: [...state.imports, `${key.name} as ${value.name}`] };
+    } else {
+      // Nested destructure e.g. const { a: { b } } = require('a');
+      return {
+        imports: [...state.imports, `${key.name} as _${key.name}`],
+        statements: [...state.statements, `const ${j(value).toSource()} = _${key.name};`]
+      };
+    }
+  }, { imports: [], statements: [] });
 }
