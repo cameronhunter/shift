@@ -1,3 +1,5 @@
+const AllowedParentTypes = ['VariableDeclarator', 'CallExpression', 'MemberExpression'];
+
 export default ({ source }, { jscodeshift: j }) => {
   const root = j(source);
 
@@ -7,7 +9,7 @@ export default ({ source }, { jscodeshift: j }) => {
       const parentDeclaration = findParentDeclaration(node);
 
       // e.g. require('a');
-      if (!parentDeclaration || !parentDeclaration.scope.isGlobal || node.parentPath.name === 'arguments') {
+      if (!parentDeclaration || !parentDeclaration.scope.isGlobal || AllowedParentTypes.indexOf(node.parentPath.value.type) < 0) {
         return;
       }
 
