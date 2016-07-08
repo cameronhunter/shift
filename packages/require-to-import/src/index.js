@@ -9,64 +9,74 @@ export default ({ source }, { jscodeshift: j }) => {
       const parentDeclaration = findParentDeclaration(node);
 
       // e.g. require('a');
-      if (!parentDeclaration || !parentDeclaration.scope.isGlobal || AllowedParentTypes.indexOf(node.parentPath.value.type) < 0) {
+      if (!parentDeclaration || !parentDeclaration.scope.isGlobal) {
         return;
       }
 
       const $parentDeclaration = j(parentDeclaration);
-      const importPath = node.value.arguments[0].value;
+      const importPath = node.value.arguments[0].value.replace(/\.js$/, '');
 
-      // e.g. const a = require('a'); or const a = require('a')('b');
+      if (node.name !== 'init') {
+        if (node.name === 'object') {
+          const [declaration] = parentDeclaration.value.declarations;
+          const properties = findProperties(declaration.init);
+          if (properties.length === 1) {
+            const [name] = properties;
+            const importName = name === declaration.id.name ? name : `${name} as ${declaration.id.name}`;
+            const comments = parentDeclaration.node.comments;
+            $parentDeclaration.replaceWith(`import { ${importName} } from '${importPath}';`);
+            parentDeclaration.node.comments = comments;
+            return;
+          }
+        }
+
+        const importNamePrefix = importPath.split('/').pop();
+        const importName = node.name === 'callee' ? `${importNamePrefix}Factory` : `_${importNamePrefix}`;
+
+        $parentDeclaration.insertBefore(`import ${importName} from '${importPath}';`);
+        j(node).replaceWith(importName);
+
+        if (!$parentDeclaration.toSource().endsWith(';')) {
+          $parentDeclaration.replaceWith($parentDeclaration.toSource() + ';');
+        }
+
+        return;
+      }
+
+      // e.g. const a = require('a');
       if (isSingleVariableDeclaration(parentDeclaration)) {
         const [declaration] = parentDeclaration.value.declarations;
 
         // e.g. const a = require('a');
         if (declaration.init.callee && declaration.init.callee.type === 'Identifier') {
           if (parentDeclaration.value.kind === 'const') {
+            const comments = parentDeclaration.node.comments;
             $parentDeclaration.replaceWith(`import ${declaration.id.name} from '${importPath}';`);
+            parentDeclaration.node.comments = comments;
             return;
           }
 
           if (parentDeclaration.value.kind === 'let' || parentDeclaration.value.kind === 'var') {
             const kind = parentDeclaration.value.kind;
             const importName = `_${declaration.id.name}`;
+            const comments = parentDeclaration.node.comments;
             $parentDeclaration.replaceWith(`import ${importName} from '${importPath}';`);
+            parentDeclaration.node.comments = comments;
             $parentDeclaration.insertAfter(`${kind} ${declaration.id.name} = ${importName};`);
             return;
           }
-        }
-
-        // e.g. const b = require('a').b;
-        if (declaration.init.type === 'MemberExpression') {
-          const properties = findProperties(declaration.init);
-
-          if (properties.length === 1) {
-            const [name] = properties;
-            const importName = name === declaration.id.name ? name : `${name} as ${declaration.id.name}`;
-            $parentDeclaration.replaceWith(`import { ${importName} } from '${importPath}';`);
-          } else {
-            const importName = `_${node.value.arguments[0].value}`; // TODO: handle paths
-            $parentDeclaration.replaceWith(`import ${importName} from '${importPath}';`);
-            $parentDeclaration.insertAfter(`const ${declaration.id.name} = ${importName}.${properties.join('.')};`);
-          }
-          return;
-        }
-
-        // e.g. const a = require('a')('b');
-        if (declaration.init.callee.type === 'CallExpression') {
-          const importName = `_${declaration.id.name}`;
-          $parentDeclaration.replaceWith(`import ${importName} from '${importPath}';`);
-          $parentDeclaration.insertAfter(`const ${declaration.id.name} = ${importName}(${j(declaration.init.arguments).toSource()});`);
-          return;
         }
       }
 
       // e.g. const { a, b } = require('a');
       if (isDestructuredDeclaration(parentDeclaration)) {
         const [declaration] = parentDeclaration.value.declarations;
-        const { imports, statements } = buildDestructuredImports(j, declaration.id.properties);
+        const kind = parentDeclaration.value.kind;
+        const { imports, statements } = buildDestructuredImports(j, kind, declaration.id.properties);
 
+        const comments = parentDeclaration.node.comments;
         $parentDeclaration.replaceWith(`import { ${imports.join(', ')} } from '${importPath}';`);
+        parentDeclaration.node.comments = comments;
         statements.length && j(parentDeclaration).insertAfter(statements.join(''));
         return;
       }
@@ -99,19 +109,25 @@ function findParentDeclaration(node) {
   return findParentDeclaration(node.parentPath);
 }
 
-function buildDestructuredImports(j, properties) {
+function buildDestructuredImports(j, kind, properties) {
   return properties.reduce((state, { key, value }) => {
     if (key.name === value.name) {
-      // Simple destructure e.g. const { a } = require('a');
+      // e.g. const { a } = require('a');
       return { ...state, imports: [...state.imports, key.name] };
-    } else if (value.name) {
-      // Destructure with rename e.g. const { a: b } = require('a');
+    } else if (value.type === 'Identifier') {
+      // e.g. const { a: b } = require('a');
       return { ...state, imports: [...state.imports, `${key.name} as ${value.name}`] };
+    } else if (value.type === 'AssignmentPattern') {
+      // e.g. const { a: b = {} } = require('a');
+      return {
+        imports: [...state.imports, `${key.name} as _${key.name}`],
+        statements: [...state.statements, `${kind} ${j(value.left).toSource()} = _${key.name} || ${j(value.right).toSource()};`]
+      };
     } else {
       // Nested destructure e.g. const { a: { b } } = require('a');
       return {
         imports: [...state.imports, `${key.name} as _${key.name}`],
-        statements: [...state.statements, `const ${j(value).toSource()} = _${key.name};`]
+        statements: [...state.statements, `${kind} ${j(value).toSource()} = _${key.name};`]
       };
     }
   }, { imports: [], statements: [] });
