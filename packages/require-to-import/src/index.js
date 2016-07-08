@@ -50,9 +50,14 @@ export default ({ source }, { jscodeshift: j }) => {
           }
         }
 
-        const importName = getVariableNameFor(importPath + (node.name === 'callee' ? 'Factory' : ''));
+        const name = importPath + (node.name === 'callee' ? 'Factory' : '');
+        const alreadyExists = importExists(name, importPath);
+        const importName = alreadyExists ? name : getVariableNameFor(name);
 
-        insertImport(importName, importPath);
+        if (!alreadyExists) {
+          insertImport(importName, importPath);
+        }
+
         j(node).replaceWith(importName);
 
         return;
