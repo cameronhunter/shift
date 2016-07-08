@@ -39,14 +39,14 @@ test("const { b: c, c: d } = require('b');", t => {
 
 test("const { c: { d: { e } = {} } } = require('c');", t => {
     const before = "const { c: { d: { e } = {} } } = require('c');";
-    const after = "import { c as _c } from 'c';\nconst { d: { e } = {} } = _c;";
+    const after = "import { c } from 'c';\nconst { d: { e } = {} } = c;";
 
     t.is(transform({ source: before }, { jscodeshift }), after);
 });
 
 test("const { a: b = DefaultValue } = require('a');", t => {
     const before = "const { a: b = DefaultValue } = require('a');";
-    const after = "import { a as _a } from 'a';\nconst b = _a || DefaultValue;";
+    const after = "import { a } from 'a';\nconst b = a || DefaultValue;";
 
     t.is(transform({ source: before }, { jscodeshift }), after);
 });
@@ -60,14 +60,14 @@ test("(function() { const a = require('b')('c'); }());", t => {
 
 test("const a = b(require('c'));", t => {
     const before = "const a = b(require('c'));";
-    const after = "import _c from 'c';\nconst a = b(_c);";
+    const after = "import c from 'c';\nconst a = b(c);";
 
     t.is(transform({ source: before }, { jscodeshift }), after);
 });
 
 test("const a = b({ c: require('c') });", t => {
     const before = "const a = b({ c: require('c') });";
-    const after = "import _c from 'c';\nconst a = b({ c: _c });";
+    const after = "import c from 'c';\nconst a = b({ c: c });";
 
     t.is(transform({ source: before }, { jscodeshift }), after);
 });
@@ -116,7 +116,7 @@ test("const c = require('a').b", t => {
 
 test("const c = require('a').b.c", t => {
     const before = "const c = require('a').b.c";
-    const after = "import _a from 'a';\nconst c = _a.b.c;";
+    const after = "import a from 'a';\nconst c = a.b.c;";
 
     t.is(transform({ source: before }, { jscodeshift }), after);
 });
@@ -130,7 +130,28 @@ test("const a = require('a.js')()", t => {
 
 test("const a = require('./a/b').b.c;\nconst b = require('./b/b').b.c;", t => {
     const before = "const a = require('./a/b').b.c;\nconst b = require('./b/b').b.c;";
-    const after = "import _aB from './a/b';\nconst a = _aB.b.c;\nimport _bB from './b/b';\nconst b = _bB.b.c;";
+    const after = "import bB from './b/b';\nimport aB from './a/b';\nconst a = aB.b.c;\nconst b = bB.b.c;";
+
+    t.is(transform({ source: before }, { jscodeshift }), after);
+});
+
+test("const a = require('a').a;\nconst b = require('a').b;", t => {
+    const before = "const a = require('a').a;\nconst b = require('a').b;";
+    const after = "import { b } from 'a';\nimport { a } from 'a';";
+
+    t.is(transform({ source: before }, { jscodeshift }), after);
+});
+
+test("const a = require('a').a.b;\nconst b = require('a').a.c;", t => {
+    const before = "const a = require('a').a.b;\nconst b = require('a').a.c;";
+    const after = "import _a from 'a';\nconst a = _a.a.b;\nconst b = _a.a.c;";
+
+    t.is(transform({ source: before }, { jscodeshift }), after);
+});
+
+test("const { a: { b } } = require('a');", t => {
+    const before = "const { a: { b } } = require('a');";
+    const after = "import { a } from 'a';\nconst { b } = a;";
 
     t.is(transform({ source: before }, { jscodeshift }), after);
 });

@@ -1,9 +1,48 @@
 import camelcase from 'camelcase';
 
-const AllowedParentTypes = ['VariableDeclarator', 'CallExpression', 'MemberExpression'];
+const Utils = (j, root) => {
+  const variableExists = (name) => {
+    const destructuredDeclarations = root.find(j.VariableDeclarator).find('Property', { value: { type: 'Identifier' } }).nodes().map(node => node.value.name);
+    const variables = root.find(j.VariableDeclarator).nodes().map(node => node.id.name);
+    const imports = root.find(j.ImportDeclaration).nodes().reduce((state, node) => state.concat(node.specifiers.map(s => s.local.name)), []);
+
+    const results = [].concat(destructuredDeclarations, variables, imports).filter(Boolean);
+
+    return results.indexOf(name) >= 0;
+  };
+
+  const importExists = (name, source) => {
+    return !!j(root.toSource())
+              .find(j.ImportDeclaration, { source: { value: source } })
+              .filter(path => path.value.specifiers.map(imp => imp.local.name).indexOf(name) >= 0)
+              .size();
+  };
+
+  const insertImport = (name, source) => {
+    if (!importExists(name, source)) {
+      root.find(j.Program).get('body', 0).insertBefore(`import ${name} from '${source}';`)
+    }
+  };
+
+  const getVariableNameFor = (path, i = 1) => {
+    const parts = path.split('/');
+    const prefix = i > parts.length ? '_' : '';
+    const name = prefix + camelcase(parts.slice(-1 * i).join('-'));
+
+    return variableExists(name) ? getVariableNameFor(path, i + 1) : name;
+  };
+
+  return {
+    insertImport,
+    getVariableNameFor
+  };
+};
 
 export default ({ source }, { jscodeshift: j }) => {
   const root = j(source);
+  const { insertImport, getVariableNameFor } = Utils(j, root);
+
+  const { leadingComments } = root.find(j.Program).get('body', 0).node;
 
   root
     .find(j.CallExpression, { callee: { name: 'require' } })
@@ -25,17 +64,15 @@ export default ({ source }, { jscodeshift: j }) => {
           if (properties.length === 1) {
             const [name] = properties;
             const importName = name === declaration.id.name ? name : `${name} as ${declaration.id.name}`;
-            const comments = parentDeclaration.node.comments;
-            $parentDeclaration.replaceWith(`import { ${importName} } from '${importPath}';`);
-            parentDeclaration.node.comments = comments;
+            insertImport(`{ ${importName} }`, importPath);
+            $parentDeclaration.remove();
             return;
           }
         }
 
-        const importNamePrefix = camelcase(importPath.split('/').join('-'));
-        const importName = node.name === 'callee' ? `${importNamePrefix}Factory` : `_${importNamePrefix}`;
+        const importName = getVariableNameFor(importPath + (node.name === 'callee' ? 'Factory' : ''));
 
-        $parentDeclaration.insertBefore(`import ${importName} from '${importPath}';`);
+        insertImport(importName, importPath);
         j(node).replaceWith(importName);
 
         if (!$parentDeclaration.toSource().endsWith(';')) {
@@ -52,19 +89,17 @@ export default ({ source }, { jscodeshift: j }) => {
         // e.g. const a = require('a');
         if (declaration.init.callee && declaration.init.callee.type === 'Identifier') {
           if (parentDeclaration.value.kind === 'const') {
-            const comments = parentDeclaration.node.comments;
-            $parentDeclaration.replaceWith(`import ${declaration.id.name} from '${importPath}';`);
-            parentDeclaration.node.comments = comments;
+            insertImport(declaration.id.name, importPath);
+            $parentDeclaration.remove();
             return;
           }
 
           if (parentDeclaration.value.kind === 'let' || parentDeclaration.value.kind === 'var') {
             const kind = parentDeclaration.value.kind;
             const importName = `_${declaration.id.name}`;
-            const comments = parentDeclaration.node.comments;
-            $parentDeclaration.replaceWith(`import ${importName} from '${importPath}';`);
-            parentDeclaration.node.comments = comments;
+            insertImport(importName, importPath);
             $parentDeclaration.insertAfter(`${kind} ${declaration.id.name} = ${importName};`);
+            $parentDeclaration.remove();
             return;
           }
         }
@@ -74,15 +109,16 @@ export default ({ source }, { jscodeshift: j }) => {
       if (isDestructuredDeclaration(parentDeclaration)) {
         const [declaration] = parentDeclaration.value.declarations;
         const kind = parentDeclaration.value.kind;
-        const { imports, statements } = buildDestructuredImports(j, kind, declaration.id.properties);
+        const { imports, statements } = buildDestructuredImports(j, root, kind, declaration.id.properties);
 
-        const comments = parentDeclaration.node.comments;
-        $parentDeclaration.replaceWith(`import { ${imports.join(', ')} } from '${importPath}';`);
-        parentDeclaration.node.comments = comments;
+        insertImport(`{ ${imports.join(', ')} }`, importPath);
         statements.length && j(parentDeclaration).insertAfter(statements.join(''));
+        $parentDeclaration.remove();
         return;
       }
     });
+
+  root.get().node.comments = leadingComments;
 
   return root.toSource();
 };
@@ -111,7 +147,9 @@ function findParentDeclaration(node) {
   return findParentDeclaration(node.parentPath);
 }
 
-function buildDestructuredImports(j, kind, properties) {
+function buildDestructuredImports(j, root, kind, properties) {
+  const { getVariableNameFor } = Utils(j, root);
+
   return properties.reduce((state, { key, value }) => {
     if (key.name === value.name) {
       // e.g. const { a } = require('a');
@@ -121,15 +159,19 @@ function buildDestructuredImports(j, kind, properties) {
       return { ...state, imports: [...state.imports, `${key.name} as ${value.name}`] };
     } else if (value.type === 'AssignmentPattern') {
       // e.g. const { a: b = {} } = require('a');
+      const name = getVariableNameFor(key.name);
+      const importName = key.name === name ? name : `${key.name} as ${name}`;
       return {
-        imports: [...state.imports, `${key.name} as _${key.name}`],
-        statements: [...state.statements, `${kind} ${j(value.left).toSource()} = _${key.name} || ${j(value.right).toSource()};`]
+        imports: [...state.imports, importName],
+        statements: [...state.statements, `${kind} ${j(value.left).toSource()} = ${name} || ${j(value.right).toSource()};`]
       };
     } else {
       // Nested destructure e.g. const { a: { b } } = require('a');
+      const name = getVariableNameFor(key.name);
+      const importName = key.name === name ? name : `${key.name} as ${name}`;
       return {
-        imports: [...state.imports, `${key.name} as _${key.name}`],
-        statements: [...state.statements, `${kind} ${j(value).toSource()} = _${key.name};`]
+        imports: [...state.imports, importName],
+        statements: [...state.statements, `${kind} ${j(value).toSource()} = ${name};`]
       };
     }
   }, { imports: [], statements: [] });
