@@ -1,3 +1,5 @@
+import camelcase from 'camelcase';
+
 const AllowedParentTypes = ['VariableDeclarator', 'CallExpression', 'MemberExpression'];
 
 export default ({ source }, { jscodeshift: j }) => {
@@ -30,7 +32,7 @@ export default ({ source }, { jscodeshift: j }) => {
           }
         }
 
-        const importNamePrefix = importPath.split('/').pop();
+        const importNamePrefix = camelcase(importPath.split('/').join('-'));
         const importName = node.name === 'callee' ? `${importNamePrefix}Factory` : `_${importNamePrefix}`;
 
         $parentDeclaration.insertBefore(`import ${importName} from '${importPath}';`);

@@ -4,5 +4,8 @@
   "description": "",
   "main": "build/index.js",
   "author": "Cameron Hunter",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "camelcase": "^3.0.0"
+  }
 }
