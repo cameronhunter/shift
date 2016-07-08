@@ -1,46 +1,8 @@
-import camelcase from 'camelcase';
-
-const Utils = (j, root) => {
-  const variableExists = (name) => {
-    const destructuredDeclarations = root.find(j.VariableDeclarator).find('Property', { value: { type: 'Identifier' } }).nodes().map(node => node.value.name);
-    const variables = root.find(j.VariableDeclarator).nodes().map(node => node.id.name);
-    const imports = root.find(j.ImportDeclaration).nodes().reduce((state, node) => state.concat(node.specifiers.map(s => s.local.name)), []);
-
-    const results = [].concat(destructuredDeclarations, variables, imports).filter(Boolean);
-
-    return results.indexOf(name) >= 0;
-  };
-
-  const importExists = (name, source) => {
-    return !!j(root.toSource())
-              .find(j.ImportDeclaration, { source: { value: source } })
-              .filter(path => path.value.specifiers.map(imp => imp.local.name).indexOf(name) >= 0)
-              .size();
-  };
-
-  const insertImport = (name, source) => {
-    if (!importExists(name, source)) {
-      root.find(j.Program).get('body', 0).insertBefore(`import ${name} from '${source}';`)
-    }
-  };
-
-  const getVariableNameFor = (path, i = 1) => {
-    const parts = path.split('/');
-    const prefix = i > parts.length ? '_' : '';
-    const name = prefix + camelcase(parts.slice(-1 * i).join('-'));
-
-    return variableExists(name) ? getVariableNameFor(path, i + 1) : name;
-  };
-
-  return {
-    insertImport,
-    getVariableNameFor
-  };
-};
+import Utils from './utils';
 
 export default ({ source }, { jscodeshift: j }) => {
   const root = j(source);
-  const { insertImport, getVariableNameFor } = Utils(j, root);
+  const { importExists, insertImport, getVariableNameFor } = Utils(j, root);
 
   const { leadingComments } = root.find(j.Program).get('body', 0).node;
 
@@ -63,9 +25,27 @@ export default ({ source }, { jscodeshift: j }) => {
           const properties = findProperties(declaration.init);
           if (properties.length === 1) {
             const [name] = properties;
-            const importName = name === declaration.id.name ? name : `${name} as ${declaration.id.name}`;
-            insertImport(`{ ${importName} }`, importPath);
+            const alreadyExists = importExists(name, importPath);
+
+            if (!alreadyExists) {
+              const importName = name === declaration.id.name ? name : `${name} as ${declaration.id.name}`;
+              insertImport(`{ ${importName} }`, importPath);
+            }
+
             $parentDeclaration.remove();
+            return;
+          } else {
+            const [name] = properties;
+            const alreadyExists = importExists(name, importPath);
+            const importName = alreadyExists ? name : getVariableNameFor(name);
+
+            if (!alreadyExists) {
+              insertImport(`{ ${name === importName ? name : `${name} as ${importName}`} }`, importPath);
+            }
+
+            const parent = node.parentPath;
+            j(node).remove();
+            j(parent).replaceWith(importName);
             return;
           }
         }
@@ -74,10 +54,6 @@ export default ({ source }, { jscodeshift: j }) => {
 
         insertImport(importName, importPath);
         j(node).replaceWith(importName);
-
-        if (!$parentDeclaration.toSource().endsWith(';')) {
-          $parentDeclaration.replaceWith($parentDeclaration.toSource() + ';');
-        }
 
         return;
       }
