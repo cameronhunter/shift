@@ -127,3 +127,10 @@ test("const a = require('a.js')()", t => {
 
     t.is(transform({ source: before }, { jscodeshift }), after);
 });
+
+test("const a = require('./a/b').b.c;\nconst b = require('./b/b').b.c;", t => {
+    const before = "const a = require('./a/b').b.c;\nconst b = require('./b/b').b.c;";
+    const after = "import _aB from './a/b';\nconst a = _aB.b.c;\nimport _bB from './b/b';\nconst b = _bB.b.c;";
+
+    t.is(transform({ source: before }, { jscodeshift }), after);
+});
