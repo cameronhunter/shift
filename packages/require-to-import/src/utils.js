@@ -11,16 +11,6 @@ export default (j, root) => {
     return [].concat(destructuredDeclarations, variableDeclarations, imports).filter(Boolean);
   };
 
-  const getImportFor = (source, create = (name) => name) => {
-    const existingImport = imports().filter(i => i.source === source)[0];
-    if (existingImport) {
-      return existingImport;
-    } else {
-      insertImport(getVariableNameFor(create(source)), source);
-      return getImportFor(source);
-    }
-  };
-
   const findImport = (source, named) => {
     const existingImport = imports().filter(im => im.source === source && (!named || im.named[named]))[0];
 
@@ -47,14 +37,8 @@ export default (j, root) => {
 
   const variableExists = (name) => variables().indexOf(name) >= 0;
 
-  const importExists = (name, source) => {
-    return !!imports().filter(i => i.source === source && i.default === name).length;
-  };
-
   const insertImport = (name, source) => {
-    if (!importExists(name, source)) {
-      root.find(j.Program).get('body', 0).insertBefore(`import ${name} from '${source}';`);
-    }
+    root.find(j.Program).get('body', 0).insertBefore(`import ${name} from '${source}';`);
   };
 
   const getVariableNameFor = (path, i = 1) => {
@@ -69,8 +53,6 @@ export default (j, root) => {
   return {
     findImport,
     insertImport,
-    getVariableNameFor,
-    importExists,
-    getImportFor
+    getVariableNameFor
   };
 };

@@ -2,7 +2,7 @@ import Utils from './utils';
 
 export default ({ source }, { jscodeshift: j }) => {
   const root = j(source);
-  const { findImport, getImportFor, importExists, insertImport, getVariableNameFor } = Utils(j, root);
+  const { findImport, insertImport, getVariableNameFor } = Utils(j, root);
 
   const { leadingComments } = root.find(j.Program).get('body', 0).node;
 
@@ -25,13 +25,10 @@ export default ({ source }, { jscodeshift: j }) => {
           const properties = findProperties(declaration.init);
           if (properties.length === 1) {
             const [name] = properties;
-            const existingImport = findImport(importPath, name);
-
-            if (!existingImport) {
+            if (!findImport(importPath, name)) {
               const importName = name === declaration.id.name ? name : `${name} as ${declaration.id.name}`;
               insertImport(`{ ${importName} }`, importPath);
             }
-
             $parentDeclaration.remove();
             return;
           } else {
