@@ -21,9 +21,14 @@ export default (j, root) => {
     }
   };
 
-  const findImport = (options = {}) => {
-    const { source, defaultImport, namedImport } = options;
-    return imports().filter(im => im.source === source && (!defaultImport || im.defaultImport === defaultImport) && (!namedImport || im.named.filter(named => named.imported === namedImport)[0]))[0];
+  const findImport = (source, named) => {
+    const existingImport = imports().filter(im => im.source === source && (!named || im.named[named]))[0];
+
+    if (existingImport) {
+      return named ? existingImport.named[named] : existingImport.default;
+    } else {
+      return null;
+    }
   };
 
   const imports = () => {
@@ -31,10 +36,10 @@ export default (j, root) => {
 
     return source.find(j.ImportDeclaration).nodes().map(node => {
       const defaultImport = j(node).find(j.ImportDefaultSpecifier);
-      const namedImports = j(node).find(j.ImportSpecifier).nodes().map(node => ({ local: node.local.name, imported: node.imported.name }));
+      const namedImports = j(node).find(j.ImportSpecifier).nodes().reduce((state, node) => ({ ...state, [node.imported.name]: node.local.name }), {});
       return {
         source: node.source.value,
-        defaultImport: defaultImport.size() ? defaultImport.get().value.local.name : null,
+        default: defaultImport.size() ? defaultImport.get().value.local.name : null,
         named: namedImports
       };
     });

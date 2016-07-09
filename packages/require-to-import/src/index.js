@@ -25,9 +25,9 @@ export default ({ source }, { jscodeshift: j }) => {
           const properties = findProperties(declaration.init);
           if (properties.length === 1) {
             const [name] = properties;
-            const alreadyExists = findImport({ namedImport: name, source: importPath });
+            const existingImport = findImport(importPath, name);
 
-            if (!alreadyExists) {
+            if (!existingImport) {
               const importName = name === declaration.id.name ? name : `${name} as ${declaration.id.name}`;
               insertImport(`{ ${importName} }`, importPath);
             }
@@ -36,10 +36,10 @@ export default ({ source }, { jscodeshift: j }) => {
             return;
           } else {
             const [name] = properties;
-            const alreadyExists = findImport({ namedImport: name, source: importPath });
-            const importName = alreadyExists ? name : getVariableNameFor(name);
+            const existingImport = findImport(importPath, name);
+            const importName = existingImport || getVariableNameFor(name);
 
-            if (!alreadyExists) {
+            if (!existingImport) {
               insertImport(`{ ${name === importName ? name : `${name} as ${importName}`} }`, importPath);
             }
 
@@ -50,8 +50,15 @@ export default ({ source }, { jscodeshift: j }) => {
           }
         }
 
-        const { defaultImport } = getImportFor(importPath, (path) => path + (node.name === 'callee' ? 'Factory' : ''));
-        j(node).replaceWith(defaultImport);
+        const existingImport = findImport(importPath);
+
+        if (!existingImport) {
+          const importName = getVariableNameFor(importPath + (node.name === 'callee' ? 'Factory' : ''));
+          insertImport(importName, importPath);
+          j(node).replaceWith(importName);
+        } else {
+          j(node).replaceWith(existingImport);
+        }
 
         return;
       }
