@@ -169,3 +169,10 @@ test(t => {
 
     t.is(transform({ source: before }, { jscodeshift }), after);
 });
+
+test(t => {
+    const before = "const assign = Object.assign || require('object.assign');";
+    const after = "import objectAssign from 'object.assign';\nconst assign = Object.assign || objectAssign;";
+
+    t.is(transform({ source: before }, { jscodeshift }), after);
+});

@@ -42,7 +42,7 @@ export default (j, root) => {
   };
 
   const getVariableNameFor = (path, i = 1) => {
-    const parts = path.split('/');
+    const parts = path.replace(/[.]/g, '-').split('/');
     const prefix = i > parts.length ? '_'.repeat(i - parts.length) : '';
     const transform = (input) => (i > 1 || input.indexOf('-') >= 0) ? camelcase(input) : input;
     const name = prefix + transform(parts.slice(-1 * i).join('-'));
