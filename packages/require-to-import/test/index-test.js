@@ -164,8 +164,8 @@ test(t => {
 });
 
 test(t => {
-    const before = "const b = require('a')('b');\nconst c = require('a')('c');";
-    const after = "import aFactory from 'a';\nconst b = aFactory('b');\nconst c = aFactory('c');";
+    const before = "const b = require('a/a')('b');\nconst c = require('a/a')('c');";
+    const after = "import aFactory from 'a/a';\nconst b = aFactory('b');\nconst c = aFactory('c');";
 
     t.is(transform({ source: before }, { jscodeshift }), after);
 });

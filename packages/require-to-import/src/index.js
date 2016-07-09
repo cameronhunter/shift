@@ -2,7 +2,7 @@ import Utils from './utils';
 
 export default ({ source }, { jscodeshift: j }) => {
   const root = j(source);
-  const { importExists, insertImport, getVariableNameFor } = Utils(j, root);
+  const { findImport, getImportFor, importExists, insertImport, getVariableNameFor } = Utils(j, root);
 
   const { leadingComments } = root.find(j.Program).get('body', 0).node;
 
@@ -25,7 +25,7 @@ export default ({ source }, { jscodeshift: j }) => {
           const properties = findProperties(declaration.init);
           if (properties.length === 1) {
             const [name] = properties;
-            const alreadyExists = importExists(name, importPath);
+            const alreadyExists = findImport({ namedImport: name, source: importPath });
 
             if (!alreadyExists) {
               const importName = name === declaration.id.name ? name : `${name} as ${declaration.id.name}`;
@@ -36,7 +36,7 @@ export default ({ source }, { jscodeshift: j }) => {
             return;
           } else {
             const [name] = properties;
-            const alreadyExists = importExists(name, importPath);
+            const alreadyExists = findImport({ namedImport: name, source: importPath });
             const importName = alreadyExists ? name : getVariableNameFor(name);
 
             if (!alreadyExists) {
@@ -50,15 +50,8 @@ export default ({ source }, { jscodeshift: j }) => {
           }
         }
 
-        const name = importPath + (node.name === 'callee' ? 'Factory' : '');
-        const alreadyExists = importExists(name, importPath);
-        const importName = alreadyExists ? name : getVariableNameFor(name);
-
-        if (!alreadyExists) {
-          insertImport(importName, importPath);
-        }
-
-        j(node).replaceWith(importName);
+        const { defaultImport } = getImportFor(importPath, (path) => path + (node.name === 'callee' ? 'Factory' : ''));
+        j(node).replaceWith(defaultImport);
 
         return;
       }

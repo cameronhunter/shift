@@ -11,13 +11,39 @@ export default (j, root) => {
     return [].concat(destructuredDeclarations, variableDeclarations, imports).filter(Boolean);
   };
 
+  const getImportFor = (source, create = (name) => name) => {
+    const existingImport = imports().filter(i => i.source === source)[0];
+    if (existingImport) {
+      return existingImport;
+    } else {
+      insertImport(getVariableNameFor(create(source)), source);
+      return getImportFor(source);
+    }
+  };
+
+  const findImport = (options = {}) => {
+    const { source, defaultImport, namedImport } = options;
+    return imports().filter(im => im.source === source && (!defaultImport || im.defaultImport === defaultImport) && (!namedImport || im.named.filter(named => named.imported === namedImport)[0]))[0];
+  };
+
+  const imports = () => {
+    const source = j(root.toSource());
+
+    return source.find(j.ImportDeclaration).nodes().map(node => {
+      const defaultImport = j(node).find(j.ImportDefaultSpecifier);
+      const namedImports = j(node).find(j.ImportSpecifier).nodes().map(node => ({ local: node.local.name, imported: node.imported.name }));
+      return {
+        source: node.source.value,
+        defaultImport: defaultImport.size() ? defaultImport.get().value.local.name : null,
+        named: namedImports
+      };
+    });
+  };
+
   const variableExists = (name) => variables().indexOf(name) >= 0;
 
   const importExists = (name, source) => {
-    return !!j(root.toSource())
-              .find(j.ImportDeclaration, { source: { value: source } })
-              .filter(path => path.value.specifiers.map(imp => imp.local.name).indexOf(name) >= 0)
-              .size();
+    return !!imports().filter(i => i.source === source && i.default === name).length;
   };
 
   const insertImport = (name, source) => {
@@ -36,8 +62,10 @@ export default (j, root) => {
   };
 
   return {
+    findImport,
     insertImport,
     getVariableNameFor,
-    importExists
+    importExists,
+    getImportFor
   };
 };
