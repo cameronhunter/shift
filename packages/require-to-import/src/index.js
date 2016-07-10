@@ -90,7 +90,7 @@ export default ({ source }, { jscodeshift: j }) => {
         const { imports, statements } = buildDestructuredImports(j, root, kind, declaration.id.properties);
 
         insertImport(`{ ${imports.join(', ')} }`, importPath);
-        statements.length && j(parentDeclaration).insertAfter(statements.join(''));
+        statements.length && $parentDeclaration.insertAfter(statements.join(''));
         $parentDeclaration.remove();
         return;
       }

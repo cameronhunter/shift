@@ -37,8 +37,9 @@ export default (j, root) => {
 
   const variableExists = (name) => variables().indexOf(name) >= 0;
 
-  const insertImport = (name, source) => {
-    root.find(j.Program).get('body', 0).insertBefore(`import ${name} from '${source}';`);
+  const insertImport = (name, path) => {
+    root.find(j.Program).get('body', 0).insertBefore(`import ${name} from '${path}';`);
+    return j(root.toSource()).find(j.Program).get('body', 0);
   };
 
   const getVariableNameFor = (path, i = 1) => {
