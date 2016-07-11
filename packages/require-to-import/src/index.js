@@ -11,7 +11,6 @@ export default ({ source }, { jscodeshift: j }) => {
     .find(j.CallExpression, { callee: { name: 'require' } })
     .forEach(node => {
       const parentDeclaration = findParentDeclaration(node);
-      const comments = parentDeclaration.node.comments;
 
       // e.g. require('a');
       if (!parentDeclaration || !parentDeclaration.scope.isGlobal) {
@@ -20,6 +19,7 @@ export default ({ source }, { jscodeshift: j }) => {
 
       const $parentDeclaration = j(parentDeclaration);
       const importPath = node.value.arguments[0].value.replace(/\.js$/, '');
+      const comments = parentDeclaration.node.comments;
 
       if (node.name !== 'init') {
         if (node.name === 'object') {
@@ -56,7 +56,7 @@ export default ({ source }, { jscodeshift: j }) => {
 
         if (!existingImport) {
           const importName = getVariableNameFor(importPath + (node.name === 'callee' ? 'Factory' : ''));
-          insertImport(importName, importPath, comments);
+          insertImport(importName, importPath);
           j(node).replaceWith(importName);
         } else {
           j(node).replaceWith(existingImport);

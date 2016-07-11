@@ -24,9 +24,7 @@ export default (j, root) => {
   };
 
   const imports = () => {
-    const source = j(root.toSource());
-
-    return source.find(j.ImportDeclaration).nodes().map(node => {
+    return root.find(j.ImportDeclaration).nodes().map(node => {
       const defaultImport = j(node).find(j.ImportDefaultSpecifier);
       const namedImports = j(node).find(j.ImportSpecifier).nodes().reduce((state, node) => ({ ...state, [node.imported.name]: node.local.name }), {});
       return {
