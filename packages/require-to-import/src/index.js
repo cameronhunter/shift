@@ -4,7 +4,6 @@ export default ({ source }, { jscodeshift: j }) => {
   const root = j(source);
   const { findImport, insertImport, getVariableNameFor } = Utils(j, root);
 
-  // const { leadingComments } = root.find(j.Program).get('body', 0).node;
   let fileChanged = false;
 
   root
@@ -28,7 +27,6 @@ export default ({ source }, { jscodeshift: j }) => {
           if (properties.length === 1) {
             const [name] = properties;
             if (!findImport(importPath, name)) {
-              const importName = name === declaration.id.name ? name : `${name} as ${declaration.id.name}`;
               insertImport({ [name]: declaration.id.name }, importPath, comments);
             }
             $parentDeclaration.remove();
@@ -83,7 +81,8 @@ export default ({ source }, { jscodeshift: j }) => {
             const kind = parentDeclaration.value.kind;
             const importName = `_${declaration.id.name}`;
             insertImport(importName, importPath, comments);
-            $parentDeclaration.insertAfter(`${kind} ${declaration.id.name} = ${importName};`);
+            const assignment = j.variableDeclaration(kind, [j.variableDeclarator(j.identifier(declaration.id.name), j.identifier(importName))]);
+            $parentDeclaration.insertAfter(assignment);
             $parentDeclaration.remove();
             fileChanged = true;
             return;
@@ -98,7 +97,7 @@ export default ({ source }, { jscodeshift: j }) => {
         const { imports, statements } = buildDestructuredImports(j, root, kind, declaration.id.properties);
 
         insertImport(imports, importPath, comments);
-        statements.length && $parentDeclaration.insertAfter(statements.join(''));
+        statements.length && $parentDeclaration.insertAfter(statements);
         $parentDeclaration.remove();
         fileChanged = true;
         return;
@@ -106,7 +105,6 @@ export default ({ source }, { jscodeshift: j }) => {
     });
 
   if (fileChanged) {
-    // root.get().node.comments = leadingComments;
     const newSource = root.toSource({ quote: 'single' });
     return !newSource.endsWith('\n') && source.endsWith('\n') ? newSource + '\n' : newSource;
   } else {
@@ -142,26 +140,35 @@ function buildDestructuredImports(j, root, kind, properties) {
   const { getVariableNameFor } = Utils(j, root);
 
   return properties.reduce((state, { key, value }) => {
-    if (key.name === value.name) {
-      // e.g. const { a } = require('a');
-      return { ...state, imports: { ...state.imports, [key.name]: key.name } };
-    } else if (value.type === 'Identifier') {
-      // e.g. const { a: b } = require('a');
-      return { ...state, imports: { ...state.imports, [key.name]: value.name } };
-    } else if (value.type === 'AssignmentPattern') {
+    const name = getVariableNameFor(key.name);
+
+    switch (value.type) {
+      // e.g. const { a } = require('a'); or const { a: b } = require('a');
+      case 'Identifier':
+        return { ...state, imports: { ...state.imports, [key.name]: value.name } };
+
       // e.g. const { a: b = {} } = require('a');
-      const name = getVariableNameFor(key.name);
-      return {
-        imports: { ...state.imports, [key.name]: name },
-        statements: [...state.statements, `${kind} ${j(value.left).toSource()} = ${name} || ${j(value.right).toSource()};`]
-      };
-    } else {
+      case 'AssignmentPattern':
+        return {
+          imports: { ...state.imports, [key.name]: name },
+          statements: [
+            ...state.statements,
+            j.variableDeclaration(kind, [j.variableDeclarator(value.left, j.logicalExpression('||', j.identifier(name), value.right))])
+          ]
+        };
+
       // Nested destructure e.g. const { a: { b } } = require('a');
-      const name = getVariableNameFor(key.name);
-      return {
-        imports: { ...state.imports, [key.name]: name },
-        statements: [...state.statements, `${kind} ${j(value).toSource()} = ${name};`]
-      };
+      case 'ObjectPattern':
+        return {
+          imports: { ...state.imports, [key.name]: name },
+          statements: [
+            ...state.statements,
+            j.variableDeclaration(kind, [j.variableDeclarator(value, j.identifier(name))])
+          ]
+        };
+
+      default:
+        return state;
     }
   }, { imports: {}, statements: [] });
 }

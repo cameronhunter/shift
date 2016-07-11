@@ -4,11 +4,9 @@ const entries = (object) => Object.keys(object).map(k => [k, object[k]]);
 
 export default (j, root) => {
   const variables = () => {
-    const source = j(root.toSource());
-
-    const destructuredDeclarations = source.find(j.VariableDeclarator).find('Property', { value: { type: 'Identifier' } }).nodes().map(node => node.value.name);
-    const variableDeclarations = source.find(j.VariableDeclarator).nodes().map(node => node.id.name);
-    const imports = source.find(j.ImportDeclaration).nodes().reduce((state, node) => state.concat(node.specifiers.map(s => s.local.name)), []);
+    const destructuredDeclarations = root.find(j.VariableDeclarator).find('Property', { value: { type: 'Identifier' } }).nodes().map(node => node.value.name);
+    const variableDeclarations = root.find(j.VariableDeclarator).nodes().map(node => node.id.name);
+    const imports = root.find(j.ImportDeclaration).nodes().reduce((state, node) => state.concat(node.specifiers.map(s => s.local.name)), []);
 
     return [].concat(destructuredDeclarations, variableDeclarations, imports).filter(Boolean);
   };
