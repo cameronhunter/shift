@@ -176,3 +176,27 @@ test(t => {
 
     t.is(transform({ source: before }, { jscodeshift }), after);
 });
+
+test(t => {
+const before = `/**
+* Validates the focused widget name is same as expected
+*/
+
+// TODO - make it return a function for better readibility in testcase
+
+const expect = require('chai').expect;
+const { getFocusedWidget } = require('nf-flow/focus');
+`;
+
+const after = `/**
+* Validates the focused widget name is same as expected
+*/
+
+// TODO - make it return a function for better readibility in testcase
+
+import { getFocusedWidget } from 'nf-flow/focus';
+import { expect } from 'chai';
+`;
+
+    t.is(transform({ source: before }, { jscodeshift }), after);
+});

@@ -5,6 +5,7 @@ export default ({ source }, { jscodeshift: j }) => {
   const { findImport, insertImport, getVariableNameFor } = Utils(j, root);
 
   const { leadingComments } = root.find(j.Program).get('body', 0).node;
+  let fileChanged = false;
 
   root
     .find(j.CallExpression, { callee: { name: 'require' } })
@@ -27,9 +28,11 @@ export default ({ source }, { jscodeshift: j }) => {
             const [name] = properties;
             if (!findImport(importPath, name)) {
               const importName = name === declaration.id.name ? name : `${name} as ${declaration.id.name}`;
-              insertImport(`{ ${importName} }`, importPath);
+              const newImport = insertImport(`{ ${importName} }`, importPath);
+              newImport.node.comments = parentDeclaration.node.comments;
             }
             $parentDeclaration.remove();
+            fileChanged = true;
             return;
           } else {
             const [name] = properties;
@@ -37,12 +40,15 @@ export default ({ source }, { jscodeshift: j }) => {
             const importName = existingImport || getVariableNameFor(name);
 
             if (!existingImport) {
-              insertImport(`{ ${name === importName ? name : `${name} as ${importName}`} }`, importPath);
+              const newImport = insertImport(`{ ${name === importName ? name : `${name} as ${importName}`} }`, importPath);
+              newImport.node.comments = parentDeclaration.node.comments;
             }
 
             const parent = node.parentPath;
             j(node).remove();
             j(parent).replaceWith(importName);
+
+            fileChanged = true;
             return;
           }
         }
@@ -57,6 +63,7 @@ export default ({ source }, { jscodeshift: j }) => {
           j(node).replaceWith(existingImport);
         }
 
+        fileChanged = true;
         return;
       }
 
@@ -67,17 +74,23 @@ export default ({ source }, { jscodeshift: j }) => {
         // e.g. const a = require('a');
         if (declaration.init.callee && declaration.init.callee.type === 'Identifier') {
           if (parentDeclaration.value.kind === 'const') {
-            insertImport(declaration.id.name, importPath);
+            const newImport = insertImport(declaration.id.name, importPath);
+            newImport.node.comments = parentDeclaration.node.comments;
             $parentDeclaration.remove();
+
+            fileChanged = true;
             return;
           }
 
           if (parentDeclaration.value.kind === 'let' || parentDeclaration.value.kind === 'var') {
             const kind = parentDeclaration.value.kind;
             const importName = `_${declaration.id.name}`;
-            insertImport(importName, importPath);
+            const newImport = insertImport(importName, importPath);
+            newImport.node.comments = parentDeclaration.node.comments;
             $parentDeclaration.insertAfter(`${kind} ${declaration.id.name} = ${importName};`);
             $parentDeclaration.remove();
+
+            fileChanged = true;
             return;
           }
         }
@@ -89,16 +102,23 @@ export default ({ source }, { jscodeshift: j }) => {
         const kind = parentDeclaration.value.kind;
         const { imports, statements } = buildDestructuredImports(j, root, kind, declaration.id.properties);
 
-        insertImport(`{ ${imports.join(', ')} }`, importPath);
+        const newImport = insertImport(`{ ${imports.join(', ')} }`, importPath);
+        newImport.node.comments = parentDeclaration.node.comments;
         statements.length && $parentDeclaration.insertAfter(statements.join(''));
         $parentDeclaration.remove();
+
+        fileChanged = true;
         return;
       }
     });
 
-  root.get().node.comments = leadingComments;
-
-  return root.toSource();
+  if (fileChanged) {
+    root.get().node.comments = leadingComments;
+    const newSource = root.toSource();
+    return !newSource.endsWith('\n') && source.endsWith('\n') ? newSource + '\n' : newSource;
+  } else {
+    return source;
+  }
 };
 
 function isSingleVariableDeclaration(variableDeclaration) {
