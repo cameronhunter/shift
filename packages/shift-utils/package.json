@@ -1,12 +1,12 @@
 {
-  "name": "shift-require-to-import",
+  "name": "shift-utils",
   "version": "1.0.0",
   "description": "",
   "main": "build/index.js",
   "jsnext:main": "src/index.js",
-  "author": "Cameron Hunter",
-  "license": "MIT",
   "dependencies": {
-    "shift-utils": "^1.0.0"
-  }
+    "camelcase": "^3.0.0"
+  },
+  "author": "Cameron Hunter",
+  "license": "MIT"
 }

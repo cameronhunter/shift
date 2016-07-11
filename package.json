@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "build": "lerna exec -- rollup -c ../../rollup.config.js",
+    "pretest": "npm run build",
     "test": "lerna exec -- ava --require babel-register"
   },
   "author": "Cameron Hunter <chunter@netflix.com>",

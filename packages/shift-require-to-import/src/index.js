@@ -1,8 +1,10 @@
-import Utils from './utils';
+import Utils from 'shift-utils';
+import j from 'jscodeshift';
 
-export default ({ source }, { jscodeshift: j }) => {
+export default ({ source }) => {
   const root = j(source);
-  const { findImport, insertImport, getVariableNameFor } = Utils(j, root);
+
+  const { Imports, Variables } = Utils(root);
 
   let fileChanged = false;
 
@@ -26,19 +28,19 @@ export default ({ source }, { jscodeshift: j }) => {
           const properties = findProperties(declaration.init);
           if (properties.length === 1) {
             const [name] = properties;
-            if (!findImport(importPath, name)) {
-              insertImport({ [name]: declaration.id.name }, importPath, comments);
+            if (!Imports.find(importPath, name)) {
+              Imports.insert({ [name]: declaration.id.name }, importPath, comments);
             }
             $parentDeclaration.remove();
             fileChanged = true;
             return;
           } else {
             const [name] = properties;
-            const existingImport = findImport(importPath, name);
-            const importName = existingImport || getVariableNameFor(name);
+            const existingImport = Imports.find(importPath, name);
+            const importName = existingImport || Variables.getUniqueNameFor(name);
 
             if (!existingImport) {
-              insertImport({ [name]: importName }, importPath, comments);
+              Imports.insert({ [name]: importName }, importPath, comments);
             }
 
             const parent = node.parentPath;
@@ -50,11 +52,11 @@ export default ({ source }, { jscodeshift: j }) => {
           }
         }
 
-        const existingImport = findImport(importPath);
+        const existingImport = Imports.find(importPath);
 
         if (!existingImport) {
-          const importName = getVariableNameFor(importPath + (node.name === 'callee' ? 'Factory' : ''));
-          insertImport(importName, importPath);
+          const importName = Variables.getUniqueNameFor(importPath + (node.name === 'callee' ? 'Factory' : ''));
+          Imports.insert(importName, importPath);
           j(node).replaceWith(importName);
         } else {
           j(node).replaceWith(existingImport);
@@ -71,7 +73,7 @@ export default ({ source }, { jscodeshift: j }) => {
         // e.g. const a = require('a');
         if (declaration.init.callee && declaration.init.callee.type === 'Identifier') {
           if (parentDeclaration.value.kind === 'const') {
-            insertImport(declaration.id.name, importPath, comments);
+            Imports.insert(declaration.id.name, importPath, comments);
             $parentDeclaration.remove();
             fileChanged = true;
             return;
@@ -80,7 +82,7 @@ export default ({ source }, { jscodeshift: j }) => {
           if (parentDeclaration.value.kind === 'let' || parentDeclaration.value.kind === 'var') {
             const kind = parentDeclaration.value.kind;
             const importName = `_${declaration.id.name}`;
-            insertImport(importName, importPath, comments);
+            Imports.insert(importName, importPath, comments);
             const assignment = j.variableDeclaration(kind, [j.variableDeclarator(j.identifier(declaration.id.name), j.identifier(importName))]);
             $parentDeclaration.insertAfter(assignment);
             $parentDeclaration.remove();
@@ -94,9 +96,9 @@ export default ({ source }, { jscodeshift: j }) => {
       if (isDestructuredDeclaration(parentDeclaration)) {
         const [declaration] = parentDeclaration.value.declarations;
         const kind = parentDeclaration.value.kind;
-        const { imports, statements } = buildDestructuredImports(j, root, kind, declaration.id.properties);
+        const { imports, statements } = buildDestructuredImports(kind, declaration.id.properties, Variables.getUniqueNameFor.bind(Variables));
 
-        insertImport(imports, importPath, comments);
+        Imports.insert(imports, importPath, comments);
         statements.length && $parentDeclaration.insertAfter(statements);
         $parentDeclaration.remove();
         fileChanged = true;
@@ -136,11 +138,9 @@ function findParentDeclaration(node) {
   return findParentDeclaration(node.parentPath);
 }
 
-function buildDestructuredImports(j, root, kind, properties) {
-  const { getVariableNameFor } = Utils(j, root);
-
+function buildDestructuredImports(kind, properties, getUniqueNameFor) {
   return properties.reduce((state, { key, value }) => {
-    const name = getVariableNameFor(key.name);
+    const name = getUniqueNameFor(key.name);
 
     switch (value.type) {
       // e.g. const { a } = require('a'); or const { a: b } = require('a');
