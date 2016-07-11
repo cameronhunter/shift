@@ -1,5 +1,7 @@
 import camelcase from 'camelcase';
 
+const entries = (object) => Object.keys(object).map(k => [k, object[k]]);
+
 export default (j, root) => {
   const variables = () => {
     const source = j(root.toSource());
@@ -37,9 +39,23 @@ export default (j, root) => {
 
   const variableExists = (name) => variables().indexOf(name) >= 0;
 
-  const insertImport = (name, path) => {
-    root.find(j.Program).get('body', 0).insertBefore(`import ${name} from '${path}';`);
-    return j(root.toSource()).find(j.Program).get('body', 0);
+  const insertImport = (name, path, comments) => {
+    let newImport;
+
+    if (typeof name === 'string') {
+      newImport = j.importDeclaration([j.importDefaultSpecifier(j.identifier(name))], j.literal(path));
+    } else {
+      newImport = j.importDeclaration(entries(name).map(([k, v]) => j.importSpecifier(j.identifier(k), j.identifier(v))), j.literal(path));
+    }
+
+    newImport.comments = comments;
+
+    const currentImports = root.find(j.ImportDeclaration);
+    if (currentImports.size()) {
+      currentImports.at(-1).insertAfter(newImport);
+    } else {
+      root.find(j.Program).get('body', 0).insertBefore(newImport);
+    }
   };
 
   const getVariableNameFor = (path, i = 1) => {

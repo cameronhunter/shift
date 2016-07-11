@@ -4,13 +4,14 @@ export default ({ source }, { jscodeshift: j }) => {
   const root = j(source);
   const { findImport, insertImport, getVariableNameFor } = Utils(j, root);
 
-  const { leadingComments } = root.find(j.Program).get('body', 0).node;
+  // const { leadingComments } = root.find(j.Program).get('body', 0).node;
   let fileChanged = false;
 
   root
     .find(j.CallExpression, { callee: { name: 'require' } })
     .forEach(node => {
       const parentDeclaration = findParentDeclaration(node);
+      const comments = parentDeclaration.node.comments;
 
       // e.g. require('a');
       if (!parentDeclaration || !parentDeclaration.scope.isGlobal) {
@@ -28,8 +29,7 @@ export default ({ source }, { jscodeshift: j }) => {
             const [name] = properties;
             if (!findImport(importPath, name)) {
               const importName = name === declaration.id.name ? name : `${name} as ${declaration.id.name}`;
-              const newImport = insertImport(`{ ${importName} }`, importPath);
-              newImport.node.comments = parentDeclaration.node.comments;
+              insertImport({ [name]: declaration.id.name }, importPath, comments);
             }
             $parentDeclaration.remove();
             fileChanged = true;
@@ -40,8 +40,7 @@ export default ({ source }, { jscodeshift: j }) => {
             const importName = existingImport || getVariableNameFor(name);
 
             if (!existingImport) {
-              const newImport = insertImport(`{ ${name === importName ? name : `${name} as ${importName}`} }`, importPath);
-              newImport.node.comments = parentDeclaration.node.comments;
+              insertImport({ [name]: importName }, importPath, comments);
             }
 
             const parent = node.parentPath;
@@ -57,7 +56,7 @@ export default ({ source }, { jscodeshift: j }) => {
 
         if (!existingImport) {
           const importName = getVariableNameFor(importPath + (node.name === 'callee' ? 'Factory' : ''));
-          insertImport(importName, importPath);
+          insertImport(importName, importPath, comments);
           j(node).replaceWith(importName);
         } else {
           j(node).replaceWith(existingImport);
@@ -74,10 +73,8 @@ export default ({ source }, { jscodeshift: j }) => {
         // e.g. const a = require('a');
         if (declaration.init.callee && declaration.init.callee.type === 'Identifier') {
           if (parentDeclaration.value.kind === 'const') {
-            const newImport = insertImport(declaration.id.name, importPath);
-            newImport.node.comments = parentDeclaration.node.comments;
+            insertImport(declaration.id.name, importPath, comments);
             $parentDeclaration.remove();
-
             fileChanged = true;
             return;
           }
@@ -85,11 +82,9 @@ export default ({ source }, { jscodeshift: j }) => {
           if (parentDeclaration.value.kind === 'let' || parentDeclaration.value.kind === 'var') {
             const kind = parentDeclaration.value.kind;
             const importName = `_${declaration.id.name}`;
-            const newImport = insertImport(importName, importPath);
-            newImport.node.comments = parentDeclaration.node.comments;
+            insertImport(importName, importPath, comments);
             $parentDeclaration.insertAfter(`${kind} ${declaration.id.name} = ${importName};`);
             $parentDeclaration.remove();
-
             fileChanged = true;
             return;
           }
@@ -102,19 +97,17 @@ export default ({ source }, { jscodeshift: j }) => {
         const kind = parentDeclaration.value.kind;
         const { imports, statements } = buildDestructuredImports(j, root, kind, declaration.id.properties);
 
-        const newImport = insertImport(`{ ${imports.join(', ')} }`, importPath);
-        newImport.node.comments = parentDeclaration.node.comments;
+        insertImport(imports, importPath, comments);
         statements.length && $parentDeclaration.insertAfter(statements.join(''));
         $parentDeclaration.remove();
-
         fileChanged = true;
         return;
       }
     });
 
   if (fileChanged) {
-    root.get().node.comments = leadingComments;
-    const newSource = root.toSource();
+    // root.get().node.comments = leadingComments;
+    const newSource = root.toSource({ quote: 'single' });
     return !newSource.endsWith('\n') && source.endsWith('\n') ? newSource + '\n' : newSource;
   } else {
     return source;
@@ -151,28 +144,26 @@ function buildDestructuredImports(j, root, kind, properties) {
   return properties.reduce((state, { key, value }) => {
     if (key.name === value.name) {
       // e.g. const { a } = require('a');
-      return { ...state, imports: [...state.imports, key.name] };
+      return { ...state, imports: { ...state.imports, [key.name]: key.name } };
     } else if (value.type === 'Identifier') {
       // e.g. const { a: b } = require('a');
-      return { ...state, imports: [...state.imports, `${key.name} as ${value.name}`] };
+      return { ...state, imports: { ...state.imports, [key.name]: value.name } };
     } else if (value.type === 'AssignmentPattern') {
       // e.g. const { a: b = {} } = require('a');
       const name = getVariableNameFor(key.name);
-      const importName = key.name === name ? name : `${key.name} as ${name}`;
       return {
-        imports: [...state.imports, importName],
+        imports: { ...state.imports, [key.name]: name },
         statements: [...state.statements, `${kind} ${j(value.left).toSource()} = ${name} || ${j(value.right).toSource()};`]
       };
     } else {
       // Nested destructure e.g. const { a: { b } } = require('a');
       const name = getVariableNameFor(key.name);
-      const importName = key.name === name ? name : `${key.name} as ${name}`;
       return {
-        imports: [...state.imports, importName],
+        imports: { ...state.imports, [key.name]: name },
         statements: [...state.statements, `${kind} ${j(value).toSource()} = ${name};`]
       };
     }
-  }, { imports: [], statements: [] });
+  }, { imports: {}, statements: [] });
 }
 
 function findProperties(node, result = []) {
