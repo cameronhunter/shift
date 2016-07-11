@@ -19,7 +19,8 @@ export default (root) => ({
             return {
                 source: node.source.value,
                 default: defaultImport.size() ? defaultImport.get().value.local.name : null,
-                named: namedImports
+                named: namedImports,
+                comments: node.comments
             };
         });
     },

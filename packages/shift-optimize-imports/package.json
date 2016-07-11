@@ -1,0 +1,15 @@
+{
+  "name": "shift-optimize-imports",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Cameron Hunter",
+  "license": "MIT",
+  "dependencies": {
+    "sort-order": "^1.0.1",
+    "shift-utils": "^1.0.0"
+  }
+}
