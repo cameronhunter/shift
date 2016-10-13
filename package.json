@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "prebuild": "lerna bootstrap",
     "build": "lerna exec -- rollup -c ../../rollup.config.js",
     "pretest": "npm run build",
     "test": "lerna exec -- ava --require babel-register"
