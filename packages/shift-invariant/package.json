@@ -1,12 +1,11 @@
 {
-  "name": "shift-optimize-imports",
+  "name": "shift-invariant",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
   "author": "Cameron Hunter",
   "license": "MIT",
   "dependencies": {
-    "sort-order": "^1.0.1",
     "shift-utils": "^1.0.0"
   }
 }

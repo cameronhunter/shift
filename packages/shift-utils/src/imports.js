@@ -45,5 +45,14 @@ export default (root) => ({
         }
 
         return newImport;
+    },
+
+    insertRequire(name, path) {
+        const requireStatement = j.callExpression(j.identifier('require'), [j.literal(path)]);
+        const declaration = j.variableDeclaration('const', [j.variableDeclarator(j.identifier(name), requireStatement)]);
+
+        root.find(j.Program).get('body', 0).insertBefore(declaration);
+
+        return declaration;
     }
 });
